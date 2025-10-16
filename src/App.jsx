@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Wifi, WifiOff, Send, Clock, CheckCircle, XCircle, RefreshCw, Wallet, AlertCircle, Key, PlusCircle, MinusCircle, Eye, EyeOff, Settings, User } from 'lucide-react';
 import { connect, disconnect } from 'get-starknet';
 import { Contract, Provider, cairo, hash, ec } from 'starknet';
-import logo from './components/logo.png'
 
 // CONFIGURATION
 const CONFIG = {
@@ -12,6 +11,7 @@ const CONFIG = {
     'https://starknet-sepolia.public.blastapi.io',
     'https://starknet-sepolia.drpc.org',
     'https://sepolia.starknet.io',
+    // Moved the problematic Lava RPC to the end to avoid SSL issues
     'https://rpc.starknet-sepolia.lava.build'
   ],
   network: 'sepolia',
@@ -119,70 +119,44 @@ const OfflineTransferApp = () => {
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [includeGasFees, setIncludeGasFees] = useState(false);
-  const [walletFromElectron, setWalletFromElectron] = useState(null);
 
   useEffect(() => {
-    setIsOnline(navigator.onLine);
-  
-    const updateStatus = (status) => {
-      setIsOnline(status);
-      if (status) {
-        setStatusMessage('✅ CONNECTION ESTABLISHED. PENDING TRANSACTIONS CAN BE SENT');
-      } else {
-        setStatusMessage('⚠️ OFFLINE MODE. TRANSACTIONS WILL BE SIGNED LOCALLY.');
-      }
-    };
-  
-    const checkRealConnection = async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        await fetch('https://www.google.com/favicon.ico', {
-          method: 'HEAD',
-          mode: 'no-cors',
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        console.log('🌐 Conexión REAL confirmada');
-        updateStatus(true);
-        
-      } catch (error) {
-        console.log('❌ Sin conexión REAL confirmada');
-        updateStatus(false);
-      }
-    };
-  
+    if (window.electronAPI && window.electronAPI.onWalletConnected) {
+      window.electronAPI.onWalletConnected((walletData) => {
+        console.log('Wallet data received from Electron:', walletData);
+        if (walletData.address) {
+          setWalletAddress(walletData.address);
+          setStatusMessage('✅ WALLET CONNECTED FROM ELECTRON');
+        }
+      });
+    }
+  }, []);
+
+  useEffect(() => {
     const handleOnline = () => {
-      console.log('📡 Evento ONLINE');
-      updateStatus(true);
+      setIsOnline(true);
+      setStatusMessage('✅ CONNECTION ESTABLISHED. PENDING TRANSACTIONS CAN BE SENT');
     };
     
     const handleOffline = () => {
-      console.log('📴 Evento OFFLINE');
-      updateStatus(false);
+      setIsOnline(false);
+      setStatusMessage('⚠️ OFFLINE MODE. TRANSACTIONS WILL BE SIGNED LOCALLY.');
     };
-  
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-  
-    const connectionCheck = setInterval(checkRealConnection, 2000);
-    
-    setTimeout(checkRealConnection, 1000);
-  
+
     const createProvider = async () => {
       for (const rpcUrl of CONFIG.rpcUrls) {
         try {
           const testProvider = new Provider({ 
             nodeUrl: rpcUrl,
             retries: 2,
-            timeout: 5000
+            timeout: 10000
           });
           
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('RPC timeout')), 4000)
+            setTimeout(() => reject(new Error('RPC timeout')), 8000)
           );
           
           await Promise.race([
@@ -201,44 +175,16 @@ const OfflineTransferApp = () => {
       console.error('❌ All RPCs failed');
       setStatusMessage('❌ COULD NOT CONNECT TO ANY STARKNET RPC');
     };
-  
+
     createProvider();
-  
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      clearInterval(connectionCheck);
     };
   }, []);
 
-  useEffect(() => {
-    if (window.electronAPI) {
-      const handleWalletData = (data) => {
-        console.log('Datos de wallet recibidos desde la web:', data);
-        
-        const electronWallet = {
-          account: { address: data.address },
-          selectedAddress: data.address,
-          isConnected: true,
-          source: 'electron-bridge'
-        };
-        
-        setWallet(electronWallet);
-        setWalletAddress(data.address);
-        setIsConnected(true);
-        setWalletFromElectron(data);
-        
-        alert(`✅ ¡Wallet conectada exitosamente!\n\nDirección: ${data.address}\n\nAhora puedes usar la funcionalidad offline.`);
-      };
-      
-      window.electronAPI.onWalletConnected(handleWalletData);
-      
-      return () => {
-        window.electronAPI.removeWalletListener();
-      };
-    }
-  }, []);
-
+  // IMPROVED FUNCTION: Check if an offline account exists in the contract
   const verifyOfflineAccountExists = async (accountId) => {
     if (!provider || !accountId) {
       console.warn('❌ Provider or accountId not available for verification');
@@ -248,6 +194,7 @@ const OfflineTransferApp = () => {
     try {
       console.log(`🔍 Verifying offline account ID existence: ${accountId}`);
       
+      // Try to get the account owner
       const ownerResult = await provider.callContract({
         contractAddress: CONFIG.contractAddress,
         entrypoint: 'get_offline_account_owner',
@@ -256,6 +203,7 @@ const OfflineTransferApp = () => {
 
       console.log('🔍 Owner query result:', JSON.stringify(ownerResult, null, 2));
 
+      // Check if the owner is a valid address (not zero)
       let ownerAddress = null;
       if (ownerResult && ownerResult.result && Array.isArray(ownerResult.result) && ownerResult.result.length > 0) {
         ownerAddress = ownerResult.result[0];
@@ -279,6 +227,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // Generate new local account AND automatically create it in the contract
   const generateLocalAccount = async () => {
     if (!wallet) {
       setStatusMessage('❌ CONNECT YOUR WALLET FIRST');
@@ -289,6 +238,7 @@ const OfflineTransferApp = () => {
       setIsLoading(true);
       setStatusMessage('🎲 GENERATING KEY PAIR...');
       
+      // Generate key pair
       const privateKey = ec.starkCurve.utils.randomPrivateKey();
       const privateKeyHex = '0x' + Array.from(privateKey)
         .map(b => b.toString(16).padStart(2, '0'))
@@ -306,6 +256,7 @@ const OfflineTransferApp = () => {
       
       setStatusMessage('✅ KEYS GENERATED. CREATING ACCOUNT IN CONTRACT...');
 
+      // Create the account automatically in the contract
       await createOfflineAccountWithKeys(publicKey);
       
     } catch (error) {
@@ -316,10 +267,12 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // COMPLETELY CORRECTED FUNCTION: Create offline account
   const createOfflineAccountWithKeys = async (publicKey) => {
     try {
       setStatusMessage('📝 CREATING OFFLINE ACCOUNT IN CONTRACT...');
 
+      // Convert public key to felt
       const publicKeyFelt = BigInt(publicKey).toString();
 
       console.log('🚀 STARTING OFFLINE ACCOUNT CREATION:', {
@@ -333,8 +286,8 @@ const OfflineTransferApp = () => {
         entrypoint: 'create_offline_account',
         calldata: [
           publicKeyFelt,
-          '0',
-          '0'
+          '0', // No initial deposit - low
+          '0'  // No initial deposit - high
         ]
       });
 
@@ -344,12 +297,14 @@ const OfflineTransferApp = () => {
       const receipt = await provider.waitForTransaction(result.transaction_hash);
       console.log('📋 COMPLETE RECEIPT:', JSON.stringify(receipt, null, 2));
 
+      // EXHAUSTIVE EVENT ANALYSIS
       console.log('🔍 ANALYZING EVENTS...');
       
       if (!receipt.events || receipt.events.length === 0) {
         throw new Error('No events found in transaction receipt');
       }
 
+      // Look for the OfflineAccountCreated event
       const eventSelector = hash.getSelectorFromName('OfflineAccountCreated');
       console.log('🔍 Looking for event with selector:', eventSelector);
       
@@ -375,17 +330,20 @@ const OfflineTransferApp = () => {
         throw new Error('OfflineAccountCreated event not found');
       }
 
+      // ROBUST ID EXTRACTION
       console.log('🎯 EVENT FOUND:', JSON.stringify(targetEvent, null, 2));
       
+      // The first element in keys after the selector is the offline_account_id (marked with #[key])
       let extractedAccountId;
       if (targetEvent.keys.length >= 2) {
-        extractedAccountId = targetEvent.keys[1];
+        extractedAccountId = targetEvent.keys[1]; // First key field after selector
       } else if (targetEvent.data.length >= 1) {
-        extractedAccountId = targetEvent.data[0];
+        extractedAccountId = targetEvent.data[0]; // Fallback: first element in data
       } else {
         throw new Error('Could not extract account ID from event');
       }
 
+      // Clean and validate the ID
       const accountId = BigInt(extractedAccountId).toString();
       
       console.log('📋 ID EXTRACTED AND PROCESSED:', {
@@ -394,8 +352,10 @@ const OfflineTransferApp = () => {
         asBigInt: BigInt(extractedAccountId).toString()
       });
 
+      // CRITICAL VALIDATION: Verify that the account actually exists
       setStatusMessage('🔍 VERIFYING THAT ACCOUNT WAS CREATED CORRECTLY...');
       
+      // Wait a bit for the state to propagate
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       const accountExists = await verifyOfflineAccountExists(accountId);
@@ -404,12 +364,14 @@ const OfflineTransferApp = () => {
         throw new Error(`The offline account ${accountId} was not created correctly in the contract. Storage may be inconsistent.`);
       }
 
+      // ALL OK - Update state
       setOfflineAccountId(accountId);
       setOfflineBalance('0');
       setOfflineNonce(0);
 
       setStatusMessage(`✅ OFFLINE ACCOUNT CREATED SUCCESSFULLY! ID: ${accountId}. EXISTENCE VERIFICATION: OK`);
       
+      // Refresh data to be sure
       setTimeout(() => {
         refreshOfflineAccountData(accountId);
       }, 2000);
@@ -418,12 +380,14 @@ const OfflineTransferApp = () => {
       console.error('❌ DETAILED ERROR creating offline account:', error);
       setStatusMessage('❌ ERROR: ' + (error.message || 'UNKNOWN ERROR'));
       
+      // Clear state on error
       setOfflineAccountId('');
       setOfflineBalance('0');
       setOfflineNonce(0);
     }
   };
 
+  // IMPROVED FUNCTION: Refresh offline account data
   const refreshOfflineAccountData = async (accountId = offlineAccountId, retries = 3, delay = 2000) => {
     if (!accountId || !provider) {
       console.log('❌ Cannot refresh: missing accountId or provider');
@@ -441,11 +405,13 @@ const OfflineTransferApp = () => {
     console.log(`🔍 Current state: offlineAccountId=${offlineAccountId}, parameter=${accountId}`);
 
     try {
+      // STEP 1: Verify that the account exists
       const accountExists = await verifyOfflineAccountExists(currentAccountId);
       if (!accountExists) {
         throw new Error(`The offline account ${currentAccountId} does not exist in the contract`);
       }
 
+      // STEP 2: Get balance
       console.log('📊 Querying balance...');
       const balanceResult = await provider.callContract({
         contractAddress: CONFIG.contractAddress,
@@ -484,6 +450,7 @@ const OfflineTransferApp = () => {
         balanceInStrk
       });
 
+      // STEP 3: Get nonce
       console.log('📊 Querying nonce...');
       const nonceResult = await provider.callContract({
         contractAddress: CONFIG.contractAddress,
@@ -502,6 +469,7 @@ const OfflineTransferApp = () => {
 
       console.log('🔢 Nonce obtained:', nonce);
 
+      // UPDATE STATE
       setOfflineBalance(balanceInStrk);
       setOfflineNonce(nonce);
       
@@ -527,6 +495,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // CORRECTED FUNCTION: Deposit funds with prior validation (FROM ORIGINAL WORKING FILE)
   const depositToOfflineAccount = async () => {
     if (!wallet || !contract) {
       setStatusMessage('❌ CONNECT YOUR WALLET FIRST');
@@ -547,6 +516,7 @@ const OfflineTransferApp = () => {
       setIsLoading(true);
       setStatusMessage('🔍 VERIFYING OFFLINE ACCOUNT BEFORE DEPOSITING...');
 
+      // CRITICAL VALIDATION: Verify that the account exists
       const accountExists = await verifyOfflineAccountExists(offlineAccountId);
       if (!accountExists) {
         throw new Error(`The offline account ${offlineAccountId} does not exist in the contract. Create it first using "Create Account in Contract".`);
@@ -557,6 +527,16 @@ const OfflineTransferApp = () => {
       const amountFloat = parseFloat(depositAmount);
       let amountInWei = BigInt(Math.floor(amountFloat * 1e18));
 
+      // Apply automatic gas if enabled
+      if (includeGasFees) {
+        // Use fixed gas of 0.01 STRK as suggested by user
+        const fixedGasFee = 0.01; 
+        const gasFeesInWei = BigInt(Math.floor(fixedGasFee * 1e18));
+        amountInWei = amountInWei + gasFeesInWei;
+        setStatusMessage('✅ ACCOUNT VERIFIED. DEPOSITING FUNDS WITH AUTOMATIC GAS...');
+      }
+
+      // Step 1: Approve tokens
       setStatusMessage('APPROVING STRK TOKENS...');
       const approvalResult = await wallet.account.execute({
         contractAddress: CONFIG.strkTokenAddress,
@@ -572,6 +552,7 @@ const OfflineTransferApp = () => {
       await provider.waitForTransaction(approvalResult.transaction_hash);
       console.log('✅ Approval confirmed');
 
+      // Step 2: Deposit to offline account
       setStatusMessage('DEPOSITING FUNDS...');
       
       console.log('📤 DEPOSITING WITH PARAMETERS:', {
@@ -621,6 +602,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // Function to load an existing offline account
   const loadExistingOfflineAccount = async () => {
     const accountId = prompt('ENTER THE OFFLINE ACCOUNT ID:');
     if (!accountId) return;
@@ -632,6 +614,7 @@ const OfflineTransferApp = () => {
       setIsLoading(true);
       setStatusMessage('LOADING OFFLINE ACCOUNT...');
 
+      // Verify that the account exists
       const accountExists = await verifyOfflineAccountExists(accountId);
       if (!accountExists) {
         throw new Error(`The offline account ${accountId} does not exist in the contract`);
@@ -662,6 +645,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // FUNCTION WITH CORRECTED POSEIDON HASH
   const signTransactionOffline = async () => {
     if (!localPrivKey || !offlineAccountId) {
       setStatusMessage('❌ NO LOCAL KEYS OR OFFLINE ACCOUNT AVAILABLE');
@@ -688,6 +672,7 @@ const OfflineTransferApp = () => {
 
       const amountInWei = BigInt(Math.floor(amountFloat * 1e18));
 
+      // Create transaction data
       const transactionData = {
         from: offlineAccountId,
         to: offlineRecipient,
@@ -698,6 +683,8 @@ const OfflineTransferApp = () => {
 
       console.log('🔢 Transaction data:', transactionData);
 
+      // Create data array for hash - CORRECTED to match contract
+      // Contract uses: offline_account_id, to.into(), amount.low, amount.high, nonce
       const amountU256 = cairo.uint256(amountInWei);
       const messageToSign = [
         BigInt(offlineAccountId),
@@ -710,9 +697,11 @@ const OfflineTransferApp = () => {
       console.log('📝 Message to sign (corrected to match contract):', messageToSign);
       console.log('📝 Amount u256:', amountU256);
 
+      // 🔥 MAIN CORRECTION: Use Poseidon hash instead of Pedersen
       const messageHashHex = hash.computePoseidonHashOnElements(messageToSign);
       console.log('🔐 Poseidon hash calculated:', messageHashHex);
 
+      // Sign using the official documented function
       const signature = ec.starkCurve.sign(messageHashHex, localPrivKey);
       console.log('✍️ Signature generated:', signature);
 
@@ -743,6 +732,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // CORRECTED FUNCTION: Withdraw funds
   const withdrawFromOfflineAccount = async () => {
     if (!wallet || !contract) {
       setStatusMessage('❌ CONNECT YOUR WALLET FIRST');
@@ -791,6 +781,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // CORRECTED FUNCTION: Update account state in contract
   const processTransactionQueue = async () => {
     if (!wallet || !isOnline || offlineTransactionQueue.length === 0) {
       setStatusMessage('❌ NO TRANSACTIONS TO PROCESS OR NO CONNECTION');
@@ -817,18 +808,20 @@ const OfflineTransferApp = () => {
           setStatusMessage(`🔄 PROCESSING TRANSACTION ${i + 1}/${offlineTransactionQueue.length}...`);
           console.log(`🔄 Processing transaction ${i + 1}:`, tx);
 
+          // Prepare calldata for execute_offline_transfer
           const calldata = [
-            tx.from,
-            tx.to,
-            cairo.uint256(BigInt(tx.amount)).low.toString(),
-            cairo.uint256(BigInt(tx.amount)).high.toString(),
-            tx.nonce.toString(),
-            tx.signature.r,
-            tx.signature.s
+            tx.from, // offline_account_id
+            tx.to,   // to (ContractAddress)
+            cairo.uint256(BigInt(tx.amount)).low.toString(),  // amount.low
+            cairo.uint256(BigInt(tx.amount)).high.toString(), // amount.high
+            tx.nonce.toString(), // nonce
+            tx.signature.r,      // signature_r
+            tx.signature.s       // signature_s
           ];
 
           console.log('📤 Calldata prepared:', calldata);
 
+          // 🔥 MAIN CORRECTION: Use wallet.account.execute instead of provider.callContract
           const executeResult = await wallet.account.execute({
             contractAddress: CONFIG.contractAddress,
             entrypoint: 'execute_offline_transfer',
@@ -837,9 +830,11 @@ const OfflineTransferApp = () => {
 
           console.log('✅ Execution result:', executeResult);
 
+          // Wait for transaction confirmation
           const receipt = await provider.waitForTransaction(executeResult.transaction_hash);
           console.log('📋 Transaction receipt:', receipt);
 
+          // If we get here, the transaction was successful
           successCount++;
           results.push({ 
             id: tx.id, 
@@ -858,18 +853,22 @@ const OfflineTransferApp = () => {
           });
         }
 
+        // Small pause between transactions
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
+      // Show summary
       console.log('📊 Update summary:', { successCount, failureCount, results });
 
       if (successCount > 0) {
+        // Clear successful transactions from queue
         const failedTransactions = offlineTransactionQueue.filter(tx => {
           const result = results.find(r => r.id === tx.id);
           return result && result.status === 'failed';
         });
         setOfflineTransactionQueue(failedTransactions);
 
+        // Update account data
         setTimeout(() => {
           refreshOfflineAccountData();
         }, 2000);
@@ -888,94 +887,98 @@ const OfflineTransferApp = () => {
   };
 
   const connectWallet = async () => {
+    // Check if we're in Electron
     if (window.electronAPI) {
-      const confirmOpen = window.confirm(
-        '🌐 Para conectar tu billetera, se abrirá la versión web.\n\n' +
-        'Una vez conectada, los datos se sincronizarán automáticamente ' +
-        'con esta aplicación para funcionalidad offline.\n\n' +
-        '¿Continuar?'
-      );
-      
-      if (confirmOpen) {
-        const webUrl = 'https://kodiak-wallet.vercel.app?from=electron&callback=kodiak://wallet-connected';
-        console.log('Abriendo versión web:', webUrl);
-        window.electronAPI.openExternal(webUrl);
-        
-        alert('🔄 Se abrió la versión web.\n\nConecta tu wallet allí y esta aplicación se sincronizará automáticamente.');
-      }
+      // Electron environment - redirect to web version
+      const url = `https://kodiak-wallet.vercel.app?from=electron&callback=kodiak://wallet-connected`;
+      window.electronAPI.openExternal(url);
       return;
     }
-    
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const fromElectron = urlParams.get('from') === 'electron';
-      const callbackUrl = urlParams.get('callback');
-      
-      if (!window.starknet) {
-        throw new Error('No wallet found, wallet connection cancelled, or no compatible wallet installed. Please make sure you have Ready Wallet or Braavos installed and try again.');
-      }
 
-      const availableWallets = await window.starknet.getAvailableWallets();
-      
-      if (availableWallets.length === 0) {
-        throw new Error('No wallet found, wallet connection cancelled, or no compatible wallet installed. Please make sure you have Ready Wallet or Braavos installed and try again.');
-      }
+    // Check if this is a callback from Electron (web environment)
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromElectron = urlParams.get('from');
+    const callback = urlParams.get('callback');
 
-      let selectedWallet = availableWallets.find(wallet => wallet.id === 'argentX') || availableWallets[0];
-      
-      const { wallet } = await window.starknet.enable({ starknetVersion: 'v4' });
-      
-      if (wallet && wallet.isConnected) {
-        setWallet(wallet);
-        setIsConnected(true);
-        console.log('✅ Wallet connected:', wallet);
-        
-        if (fromElectron && callbackUrl) {
-          const walletData = {
-            address: wallet.selectedAddress || wallet.account?.address,
-            publicKey: wallet.account?.publicKey || 'unknown',
-            timestamp: Date.now()
-          };
-          
-          const returnUrl = `${callbackUrl}?address=${walletData.address}&publicKey=${walletData.publicKey}&timestamp=${walletData.timestamp}`;
-          
-          alert('✅ ¡Wallet conectada! Regresando a la aplicación...');
-          
-          setTimeout(() => {
-            window.location.href = returnUrl;
-          }, 2000);
+    if (fromElectron === 'electron' && callback) {
+      // This is the web version being called from Electron
+      // Connect normally and then redirect back
+      try {
+        const starknet = await connect({ modalMode: 'alwaysAsk' });
+        if (starknet) {
+          await starknet.enable();
+          if (starknet.isConnected && starknet.selectedAddress) {
+            // Redirect back to Electron with wallet data
+            window.location.href = `${callback}?address=${starknet.selectedAddress}`;
+            return;
+          }
         }
+      } catch (error) {
+        console.error('Error connecting wallet for Electron:', error);
+        alert('Error al conectar con la billetera. Asegúrate de tener ArgentX o Braavos instalados.');
+        return;
       }
-    } catch (error) {
-      console.error('❌ Error connecting wallet:', error);
-      alert(error.message);
     }
+
+    // Normal web browser behavior - show wallet modal
+    setShowWalletModal(true);
   };
 
-  const handleWalletConnection = async () => {
+  const handleWalletConnection = async (walletId = null) => {
     try {
       setIsLoading(true);
+      setShowWalletModal(false);
       setStatusMessage('CONNECTING WALLET...');
-  
-      const starknet = await connect();
-  
-      if (!starknet) {
-        throw new Error('No wallet connection established');
+
+      let starknet = null;
+      
+      if (walletId) {
+        // Try specific wallet first
+        try {
+          starknet = await connect({ modalMode: 'neverAsk', walletId });
+        } catch (error) {
+          console.warn(`Failed to connect to ${walletId}, trying auto-detect...`);
+          // Fallback to auto-detect if specific wallet fails
+          try {
+            starknet = await connect({ modalMode: 'alwaysAsk' });
+          } catch (fallbackError) {
+            console.error('Auto-detect also failed:', fallbackError);
+            starknet = null;
+          }
+        }
+      } else {
+        // Auto-detect mode
+        try {
+          starknet = await connect({ modalMode: 'alwaysAsk' });
+        } catch (error) {
+          console.error('Auto-detect failed:', error);
+          starknet = null;
+        }
       }
-  
+
+      if (!starknet) {
+        throw new Error('No wallet found, wallet connection cancelled, or no compatible wallet installed. Please make sure you have ArgentX or Braavos installed and try again.');
+      }
+
       await starknet.enable();
+      
+      if (!starknet.isConnected) {
+        throw new Error('Wallet connection was not established properly. Please try again.');
+      }
       
       if (starknet && starknet.isConnected) {
         setWallet({ account: starknet.account, provider: starknet.provider });
         setWalletAddress(starknet.selectedAddress);
-  
+
+        // Get current nonce
         const nonce = await starknet.account.getNonce();
         setCurrentNonce(nonce);
-  
+
         const contractInstance = new Contract(CONFIG.contractAbi, CONFIG.contractAddress, starknet.provider);
         contractInstance.connect(starknet.account);
         setContract(contractInstance);
-  
+
+        // Get STRK balance using provider
         try {
           if (provider) {
             const balanceResult = await provider.callContract({
@@ -983,7 +986,9 @@ const OfflineTransferApp = () => {
               entrypoint: 'balanceOf',
               calldata: [starknet.selectedAddress]
             });
-  
+
+            console.log('🔍 Balance result:', balanceResult);
+            
             let balanceData = null;
             if (balanceResult && balanceResult.result && Array.isArray(balanceResult.result) && balanceResult.result.length >= 2) {
               balanceData = {
@@ -996,7 +1001,7 @@ const OfflineTransferApp = () => {
                 high: balanceResult[1]
               };
             }
-  
+
             if (balanceData) {
               const low = BigInt(balanceData.low || 0);
               const high = BigInt(balanceData.high || 0);
@@ -1004,6 +1009,7 @@ const OfflineTransferApp = () => {
               const balanceInStrk = (Number(balanceWei) / 1e18).toFixed(6);
               setBalance(balanceInStrk);
             } else {
+              console.log('❌ Error getting balance:', balanceResult);
               setBalance('0.000000');
             }
           }
@@ -1011,12 +1017,13 @@ const OfflineTransferApp = () => {
           console.error('❌ Error getting balance:', balanceError);
           setBalance('0.000000');
         }
-  
+
         setStatusMessage('✅ WALLET CONNECTED SUCCESSFULLY');
       }
     } catch (error) {
       console.error('❌ Error connecting wallet:', error);
       setStatusMessage(`❌ WALLET CONNECTION ERROR: ${error.message}`);
+      setShowWalletModal(true); // Show modal again for retry
     } finally {
       setIsLoading(false);
     }
@@ -1037,6 +1044,7 @@ const OfflineTransferApp = () => {
     }
   };
 
+  // 🖤🤍 BLACK AND WHITE STYLES WITH TYPEWRITER TYPOGRAPHY
   const typewriterStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inconsolata:wght@400;700&display=swap');
     
@@ -1072,6 +1080,7 @@ const OfflineTransferApp = () => {
       text-transform: uppercase;
     }
     
+    /* BLACK & WHITE THEME */
     .bg-black { background-color: #000000 !important; }
     .bg-dark-black { background-color: #0a0a0a !important; }
     .bg-darker-black { background-color: #121212 !important; }
@@ -1088,6 +1097,7 @@ const OfflineTransferApp = () => {
     .border-gray { border-color: #888888 !important; }
     .border-dark-gray { border-color: #444444 !important; }
     
+    /* WHITE AND BLACK BUTTONS */
     .btn-white {
       background-color: #ffffff;
       color: #000000;
@@ -1142,6 +1152,7 @@ const OfflineTransferApp = () => {
       box-shadow: none;
     }
     
+    /* BLACK AND WHITE INPUTS */
     .input-typewriter {
       background-color: #000000;
       color: #ffffff;
@@ -1162,6 +1173,7 @@ const OfflineTransferApp = () => {
       font-style: italic;
     }
     
+    /* MINIMALIST EFFECTS */
     .card-black {
       background-color: #000000;
       border: 1px solid #333333;
@@ -1192,6 +1204,7 @@ const OfflineTransferApp = () => {
       to { text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 0 0 15px rgba(255, 255, 255, 0.3); }
     }
     
+    /* CUSTOM CHECKBOX */
     .checkbox-typewriter {
       appearance: none;
       width: 20px;
@@ -1218,6 +1231,7 @@ const OfflineTransferApp = () => {
       font-size: 14px;
     }
     
+    /* CUSTOM SCROLLBAR */
     ::-webkit-scrollbar {
       width: 8px;
     }
@@ -1240,15 +1254,15 @@ const OfflineTransferApp = () => {
     <>
       <style>{typewriterStyles}</style>
       <div className="min-h-screen bg-black text-white">
+        {/* MINIMALIST BLACK AND WHITE HEADER */}
         <div className="bg-dark-black border-b border-white">
           <div className="max-w-6xl mx-auto p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <img src={logo} alt="Kodiak logo" width={70} />
                 <h1 className="text-2xl typewriter-title text-white glow-effect">
-                  KODIAK.<span className={`text-2xl typewriter-body ${isOnline ? 'text-green-400' : 'text-red-400'}`}>
+                  KODIAK.<span className={`text-2xl typewriter-body ${isOnline ? 'text-white' : 'text-white'}`}>
                     {isOnline ? 'ONLINE' : 'OFFLINE'}
-                  </span>
+                </span>
                 </h1>
                 
                 <div className="flex items-center gap-2">
@@ -1260,6 +1274,7 @@ const OfflineTransferApp = () => {
                 </div>
               </div>
 
+              {/* WALLET CONNECTION */}
               <div className="flex items-center gap-4">
                 {!wallet ? (
                   <button
@@ -1315,6 +1330,7 @@ const OfflineTransferApp = () => {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Offline Account Management */}
             <div className="card-black rounded p-6">
               <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white typewriter-title">
                 <Key size={24} />
@@ -1378,6 +1394,7 @@ const OfflineTransferApp = () => {
               )}
             </div>
 
+            {/* Funds Management */}
             {offlineAccountId && (
               <div className="card-black rounded p-6">
                 <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white typewriter-title">
@@ -1432,7 +1449,7 @@ const OfflineTransferApp = () => {
             )}
           </div>
 
-          {/* OFFLINE SIGNING */}
+          {/* Offline Signing - Full Width Section */}
           {offlineAccountId && localPrivKey && (
             <div className="mt-6">
               <div className="max-w-4xl mx-auto">
@@ -1483,7 +1500,7 @@ const OfflineTransferApp = () => {
             </div>
           )}
 
-          {/* TRANSACTION QUEUE */}
+          {/* Offline Transaction Queue */}
           {offlineTransactionQueue.length > 0 && (
             <div className="mt-6">
               <div className="max-w-4xl mx-auto">
@@ -1494,6 +1511,7 @@ const OfflineTransferApp = () => {
                       SIGNED.TRANSACTIONS [{offlineTransactionQueue.length}]
                     </h2>
                     
+                    {/* BUTTON TO PROCESS TRANSACTIONS */}
                     <button
                       onClick={processTransactionQueue}
                       disabled={isLoading || !isOnline || !wallet}
@@ -1504,6 +1522,7 @@ const OfflineTransferApp = () => {
                     </button>
                   </div>
 
+                  {/* STATUS INDICATORS */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div className="bg-darkest-black p-4 rounded border border-dark-gray">
                       <div className="text-center">
@@ -1533,6 +1552,7 @@ const OfflineTransferApp = () => {
                     </div>
                   </div>
 
+                  {/* TRANSACTION LIST */}
                   <div className="space-y-3">
                     {offlineTransactionQueue.map((tx, index) => (
                       <div key={tx.id} className="bg-darkest-black p-4 rounded border border-dark-gray hover:border-white transition-all">
@@ -1566,6 +1586,7 @@ const OfflineTransferApp = () => {
                     ))}
                   </div>
 
+                  {/* WARNING MESSAGE */}
                   {(!isOnline || !wallet) && (
                     <div className="mt-6 bg-darker-black border border-white rounded p-4">
                       <div className="flex items-center gap-3">
@@ -1588,6 +1609,7 @@ const OfflineTransferApp = () => {
             </div>
           )}
 
+          {/* Keys Modal */}
           {showKeysModal && (
             <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
               <div className="bg-black border-2 border-white rounded p-8 max-w-md w-full mx-4">
@@ -1627,8 +1649,8 @@ const OfflineTransferApp = () => {
 
                   <div className="bg-darker-black border border-white rounded p-4">
                     <p className="text-white text-sm typewriter-body">
-                      ⚠ WARNING: SAVE THESE KEYS SECURELY. 
-                      WITHOUT THEM YOU CANNOT ACCESS YOUR OFFLINE ACCOUNT.
+                      ⚠ WARNING: SAVE.THESE.KEYS.SECURELY. 
+                      WITHOUT.THEM.YOU.CANNOT.ACCESS.YOUR.OFFLINE.ACCOUNT.
                     </p>
                   </div>
                 </div>
@@ -1645,6 +1667,7 @@ const OfflineTransferApp = () => {
             </div>
           )}
 
+          {/* Custom Wallet Connection Modal */}
           {showWalletModal && (
             <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50 p-4">
               <div className="bg-black border-2 border-white rounded p-8 max-w-lg w-full max-h-[80vh] overflow-y-auto">
@@ -1652,7 +1675,7 @@ const OfflineTransferApp = () => {
                 
                 <div className="space-y-4">
                   <button
-                    onClick={() => handleWalletConnection('ready')}
+                    onClick={() => handleWalletConnection('argentX')}
                     disabled={isLoading}
                     className="w-full btn-white px-6 py-4 rounded typewriter-body text-left flex items-center gap-4"
                   >
@@ -1660,7 +1683,7 @@ const OfflineTransferApp = () => {
                       <span className="text-black font-bold text-xs">A</span>
                     </div>
                     <div>
-                      <div className="font-semibold">READY</div>
+                      <div className="font-semibold">ARGENT.X</div>
                       <div className="text-sm opacity-75">SMART.WALLET.FOR.STARKNET</div>
                     </div>
                   </button>
@@ -1700,7 +1723,7 @@ const OfflineTransferApp = () => {
                   </p>
                   <div className="text-xs text-very-dark-gray typewriter-mono text-center mb-4">
                     <p>NO.WALLET.DETECTED? INSTALL:</p>
-                    <p>• READY: chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb</p>
+                    <p>• ARGENT.X: chrome-extension://dlcobpjiigpikoobohmabehhmhfoodbb</p>
                     <p>• BRAAVOS: chrome-extension://jnlgamecbpmbajjfhmmmlhejkemejdma</p>
                   </div>
                   <button
