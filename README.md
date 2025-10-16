@@ -58,6 +58,7 @@ npm run build-windows
 3.  Click on **"Connect Wallet"**
 4.  Select your preferred wallet
 5.  Authorize the connection\!
+*(Note: In the web version, the offline function is only available if the page is not reloaded)*.
 
 #### In the Desktop Version:
 
@@ -67,7 +68,7 @@ npm run build-windows
 4.  Click **"Yes"** - it will open automatically in your browser
 5.  Connect with your wallet as described above
 
-### 🔧 For Developers
+### For Developers
 
 #### Available Commands
 
@@ -102,7 +103,7 @@ vite.config.js        # Vite configuration
 package.json          # Dependencies and scripts
 ```
 
-## 🛠️ Development Setup
+## Development Setup
 
 ### Environment Variables
 
@@ -113,7 +114,7 @@ VITE_CONTRACT_ADDRESS=0x06dddc3d870b18006bf59b1b33e21a576aa79a7b34a739ba04f2699c
 VITE_STRK_TOKEN_ADDRESS=0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
 ```
 
-## 🏗️ Build for Distribution
+## Build for Distribution
 
 ### Create Executable for Windows (from Linux/WSL)
 
@@ -143,13 +144,13 @@ npm run build
 # Netlify: netlify deploy --prod --dir=dist
 ```
 
-## 🔒 Security
+## Security
 
   - **Private keys** never leave your device
   - **Transactions** are signed locally
   - **No telemetry** - your privacy is a priority
 
-## 🌐 Supported Networks
+## Supported Networks
 
   - ✅ **Starknet Sepolia** (Testnet)
   - 🔄 **Starknet Mainnet** (Coming soon)
