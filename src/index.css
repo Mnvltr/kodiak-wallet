@@ -1,17 +1,55 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+/* Basic CSS reset and core styles */
 * {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-family: 'IBM Plex Mono', 'Courier Prime', 'JetBrains Mono', monospace;
+  background-color: #000000;
+  color: #ffffff;
+  line-height: 1.6;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Ensure all buttons and interactive elements work */
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Basic utility classes */
+.pulse-white {
+  animation: pulse-white 2s infinite;
+}
+
+@keyframes pulse-white {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Basic responsive design */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
 }
