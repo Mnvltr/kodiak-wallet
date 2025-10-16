@@ -120,13 +120,19 @@ const OfflineTransferApp = () => {
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [includeGasFees, setIncludeGasFees] = useState(false);
 
+  // Electron wallet connection states
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionSource, setConnectionSource] = useState(null); // 'electron' | 'direct'
+
   useEffect(() => {
     if (window.electronAPI && window.electronAPI.onWalletConnected) {
       window.electronAPI.onWalletConnected((walletData) => {
         console.log('Wallet data received from Electron:', walletData);
         if (walletData.address) {
           setWalletAddress(walletData.address);
-          setStatusMessage('✅ WALLET CONNECTED FROM ELECTRON');
+          setIsConnected(true);
+          setConnectionSource('electron');
+          setStatusMessage('✅ WALLET CONNECTED FROM ELECTRON - OFFLINE MODE AVAILABLE');
         }
       });
     }
@@ -887,6 +893,12 @@ const OfflineTransferApp = () => {
   };
 
   const connectWallet = async () => {
+    // Check if we're in Electron and already connected from electron
+    if (window.electronAPI && connectionSource === 'electron' && walletAddress) {
+      setStatusMessage('✅ ALREADY CONNECTED VIA ELECTRON - READY FOR OFFLINE MODE');
+      return;
+    }
+
     // Check if we're in Electron
     if (window.electronAPI) {
       // Electron environment - redirect to web version
@@ -908,8 +920,21 @@ const OfflineTransferApp = () => {
         if (starknet) {
           await starknet.enable();
           if (starknet.isConnected && starknet.selectedAddress) {
-            // Redirect back to Electron with wallet data
-            window.location.href = `${callback}?address=${starknet.selectedAddress}`;
+            // Show success message briefly before redirect
+            document.body.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #1a1a1a; color: white; font-family: monospace; text-align: center;">
+                <div>
+                  <h2>✅ Billetera Conectada</h2>
+                  <p>Dirección: ${starknet.selectedAddress}</p>
+                  <p>Redirigiendo a Kodiak Wallet...</p>
+                </div>
+              </div>
+            `;
+            
+            // Wait a moment then redirect
+            setTimeout(() => {
+              window.location.href = `${callback}?address=${starknet.selectedAddress}`;
+            }, 2000);
             return;
           }
         }
@@ -969,6 +994,8 @@ const OfflineTransferApp = () => {
       if (starknet && starknet.isConnected) {
         setWallet({ account: starknet.account, provider: starknet.provider });
         setWalletAddress(starknet.selectedAddress);
+        setIsConnected(true);
+        setConnectionSource('direct');
 
         // Get current nonce
         const nonce = await starknet.account.getNonce();
@@ -1038,6 +1065,8 @@ const OfflineTransferApp = () => {
       setWalletAddress('');
       setCurrentNonce(0);
       setBalance('0');
+      setIsConnected(false);
+      setConnectionSource(null);
       setStatusMessage('WALLET DISCONNECTED');
     } catch (error) {
       console.error('Error disconnecting:', error);
@@ -1276,7 +1305,7 @@ const OfflineTransferApp = () => {
 
               {/* WALLET CONNECTION */}
               <div className="flex items-center gap-4">
-                {!wallet ? (
+                {!isConnected ? (
                   <button
                     onClick={connectWallet}
                     disabled={isLoading}
@@ -1299,12 +1328,14 @@ const OfflineTransferApp = () => {
                     <div className="flex items-center gap-3">
                       <User className="text-white" size={20} />
                       <div>
-                        <div className="text-xs text-very-dark-gray typewriter-label">CONNECTED</div>
+                        <div className="text-xs text-very-dark-gray typewriter-label">
+                          {connectionSource === 'electron' ? 'CONNECTED (ELECTRON)' : 'CONNECTED'}
+                        </div>
                         <div className="typewriter-mono text-xs text-white">
                           {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
                         </div>
                         <div className="text-xs typewriter-body text-light-gray">
-                          {balance} STRK
+                          {connectionSource === 'electron' ? 'OFFLINE MODE' : `${balance} STRK`}
                         </div>
                       </div>
                       <button
