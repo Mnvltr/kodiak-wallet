@@ -1,5 +1,5 @@
 {
-  "name": "starknet-offline-transfer-frontend",
+  "name": "kodiak-wallet",
   "version": "1.0.0",
   "description": "Frontend para transferencias offline en Starknet",
   "private": true,
@@ -13,6 +13,7 @@
     "electron": "electron .",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && NODE_ENV=development electron .\"",
     "build-electron": "npm run build && electron-builder",
+    "build-windows": "npm run build && electron-builder --win",
     "build-all": "npm run build && electron-builder --publish=never",
     "dist": "npm run build && electron-builder --publish=never",
     "pack": "npm run build && electron-builder --dir",
