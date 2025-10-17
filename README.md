@@ -13,7 +13,7 @@ Kodiak Wallet allows you to create transactions even without an internet connect
 
 ## Quick Install
 
-### Option 1: Desktop Executable (Recommended)
+### Option 1: Desktop Executable (Discontinued)
 
 1.  Go to [KodiakWallet.exe](https://drive.google.com/file/d/1Pn_jKbMEvOsu-QQXXBi4vntlvBzl-WsU/view?usp=sharing)
 2.  Download `KodiakWallet-[version].exe`
@@ -51,7 +51,7 @@ npm run build-windows
 
 #### In the Web Version:
 
-1.  [Kodiak Web](https://kodiak-wallet.vercel.app/)
+1.  [Kodiak Web]([https://kodiak-wallet.vercel.app/](https://kodiakwallet.vercel.app/))
 2.  Make sure you have a compatible wallet installed:
       - [Ready Wallet](https://chromewebstore.google.com/detail/ready-wallet-formerly-arg/dlcobpjiigpikoobohmabehhmhfoodbb)
       - [Braavos](https://chromewebstore.google.com/detail/braavos-bitcoin-starknet/jnlgamecbpmbajjfhmmmlhejkemejdma)
@@ -60,7 +60,7 @@ npm run build-windows
 5.  Authorize the connection\!
 *(Note: In the web version, the offline function is only available if the page is not reloaded)*.
 
-#### In the Desktop Version:
+#### In the Desktop Version (Discontinued):
 
 1.  Open the Kodiak Wallet application
 2.  Click on **"Connect Wallet"**
